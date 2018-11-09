@@ -15,11 +15,13 @@ class PackageStatus(enum.Enum):
 
 
 class Truck:
-    def __init__(self):
+    def __init__(self, truck_number):
+        self.truck_number = truck_number
         self.packages = []
-        self.times = [0]
-        self.route = [0]
+        self.times = []
+        self.route = []
         self.driver = None
+        self.time_passed = 0
 
     def addPackage(self, package):
         """
@@ -27,6 +29,7 @@ class Truck:
         mapping to the respective delivery time per package.
         """
         package.status = PackageStatus.in_transit
+        self.time_passed = clock.time_passed
         self.packages.append(package)
         self.route_optimal_route()
         self.update_delivery_times()
@@ -35,15 +38,16 @@ class Truck:
         i = 0
         for package in self.packages:
             if package.package_id == package_id:
-                del self.times[i]
+                # del self.times[i]
                 return self.packages.pop(i)
             i += 1
         return None
 
-    def deliver_package(self, package_id):
-        deliveredPackage = self.removePackage(package_id)
+    def deliver_package(self, package_id, time):
+        deliveredPackage = package_hash_table[package_id]
         package_hash_table[deliveredPackage.package_id].status = PackageStatus.delivered
-        package_hash_table[deliveredPackage.package_id].delivered_at = clock.time
+        package_hash_table[deliveredPackage.package_id].delivered_at = str(
+            clock) + " by truck #" + str(self.truck_number)
         if PackageStatus.delivered.name in package_hash_table:
             package_hash_table[PackageStatus.delivered.name] += [deliveredPackage]
         else:
@@ -51,22 +55,32 @@ class Truck:
                 deliveredPackage]
 
     def get_current_location(self):
-        return self.route[0]
+        try:
+            return self.route[0]
+        except:
+            return 0
 
     def route_optimal_route(self):
         self.route = find_best_route(
-            [self.get_current_location()] + [package.locationIndex for package in self.packages])
+            [package.locationIndex for package in self.packages])
 
     def update_delivery_times(self):
-        self.times = [0]
+        # print("my route is:" + str(self.route))
+        self.times = [calc_route_time([0, self.route[0]])]
         for i in range(len(self.route)-1):
             self.times.append(calc_route_time(
-                [self.route[i], self.route[i+1]]) + self.times[i])
+                [self.route[i], self.route[i+1]])+self.times[i] + self.time_passed)
 
     def update_package_status(self, time):
         for i in range(len(self.times)):
-            if time >= self.times[i]:
-                self.deliver_package(self.packages[i].package_id)
+            if (time + self.time_passed) >= self.times[i]:
+                if (self.packages[i].status != PackageStatus.delivered):
+                    # print("delivering package: " +
+                        #   str(self.packages[i].package_id))
+                    self.deliver_package(
+                        self.packages[i].package_id, self.times[i])
+        # add time to truck clock to allow for reuse of this function
+        # self.time_passed += time
 
     def remaining_route_time(self):
         return calc_route_time(self.route)
@@ -76,10 +90,11 @@ class Clock:
     def __init__(self):
         self.hour = 8
         self.minute = 0.0
-        self.time = str(self.hour) + str(self.minute)
+        self.time_passed = 0
 
     def add_minutes(self, minutes=1):
         self.minute += minutes
+        self.time_passed += minutes
         if self.minute >= 60:
             if self.minute == 60:
                 self.hour += 1
@@ -159,9 +174,8 @@ class Package:
 
     def __str__(self):
         return (
-            "Package Id #" + str(self.package_id) + " \t " + "Address: " + str(self.address) + "\t" + "Deadline: " + str(self.deadline) + " \t " + "City: " + str(
-                self.city) + " \t " + "Zip Code: " + str(self.zipCode) + " \t " + "Weight: " + str(self.weight) + " \t " + "Status: " + str(self.status.name)
-            + " \t " + "Delivered At: " + str(self.delivered_at)
+            "Package Id #" + str(self.package_id) + "\tStatus: " + str(self.status.name) + " \tAddress: " + str(self.address) + "\tDeadline: " + str(self.deadline) + " \tCity: " + str(
+                self.city) + " \tZip Code: " + str(self.zipCode) + " \tWeight: " + str(self.weight) + " \tDelivered At: " + str(self.delivered_at)
         )
 
 
@@ -173,8 +187,11 @@ def lookup_package(key):
     if type(key) is int and key in package_hash_table:
         print(package_hash_table[key])
     else:
-        for package in [str(package) for package in package_hash_table[str(key)]]:
-            print(package)
+        try:
+            for package in package_hash_table[str(key)]:
+                print(package)
+        except:
+            print("no packages found")
 
 
 def show_all_package_status():
@@ -202,13 +219,16 @@ def total_distance(locations):
     return sum([calc_distance(location, locations[index + 1]) for index, location in enumerate(locations[:-1])])
 
 
-def find_best_route(nodes):
+def find_best_route(nodes, start=0):
     """
     This function will map out the best route based on nearest neighbor of last node in path.
     """
     not_visited = nodes
-    path = [nodes[0]]
-    not_visited.remove(nodes[0])
+    path = []
+    nearest_node = get_nearest_neighbor(start, not_visited)
+    path.append(nearest_node)
+    not_visited.remove(nearest_node)
+
     while not_visited:
         nearest_node = get_nearest_neighbor(path[-1], not_visited)
         path.append(nearest_node)
@@ -254,16 +274,50 @@ def divide_packages(packages):
 
     Those starting points will be the farthest apart from each other, so we can then choose the nearest node
     for each one and work our way through the remaining packages.
+
+    The third load returned will be the truck that leaves after the first two trucks have made their deliveries
     """
-    load_one = []
-    load_two = []
+    # loads correspond to the truck that will carry them, 0 = truck 1 load, 1 = truck 2 load, 2 = truck 3 load
+    loads = [[], [], []]
 
     # Start at Hub/Node 0
     last_node_selected = 0
-    add_to_one = True
+    load_index = 0
 
-    while packages:
-        remaining_stops = get_remaining_stops(packages)
+    # packages that have until EOD to be delivered should be added after priority packages.
+    no_deadline_packages = [
+        package for package in packages if package.package_id in [2, 4, 5, 7, 8, 10, 11, 12, 17, 19, 21, 22, 23, 24, 26, 27, 33, 35, 39]]
+    # packages that must be on truck two.
+    special_truck_packages = [
+        package for package in packages if package.package_id in [3, 18, 36, 38]]
+
+    print(packages)
+    delayed_packages = [
+        package for package in packages if package.package_id in [6, 28, 32, 25, 9]
+    ]
+
+    grouped_packages = [
+        package for package in packages if package.package_id in [13, 15, 20, 14, 16]
+    ]
+
+    packages_to_divide = [
+        package for package in packages if package.status != PackageStatus.inaccessible
+    ]
+    for package in no_deadline_packages + special_truck_packages + delayed_packages + grouped_packages:
+        try:
+            packages_to_divide.remove(package)
+        except:
+            pass
+    print("valid packages to divide:" + str(packages_to_divide))
+
+    # put all the priority packages on the first truck.
+    loads[0] += grouped_packages
+
+    # put all delayed packages on the last truck.
+    loads[2] += delayed_packages + special_truck_packages
+
+    while packages_to_divide:
+        remaining_stops = get_remaining_stops(packages_to_divide)
         # Select node that is farthest from currently selected one so that division is on the far ends
         # of the limits of delivery zone.
         next_node = get_farthest_neighbor(
@@ -271,16 +325,42 @@ def divide_packages(packages):
 
         last_node_selected = next_node
         # Add all packages to a single load that have a shared destination
-        for package in packages:
+        for package in packages_to_divide:
             if package.locationIndex == next_node:
-                if add_to_one == True:
-                    load_one.append(package)
-                else:
-                    load_two.append(package)
-                packages.remove(package)
+                # if the truck is full, use the next truck
+                while len(loads[load_index % 2]) >= 15:
+                    load_index += 1
+                loads[load_index % 2].append(package)
+                packages_to_divide.remove(package)
         # Alternate this value so that each load gets evenly distributed
-        add_to_one = add_to_one == False
-    return (load_one, load_two)
+        load_index += 1
+
+    # priority pacakges have been sorted and added to truck loads. Get regular mail now to sort.
+    packages_to_divide = no_deadline_packages
+    print(loads)
+    while packages_to_divide:
+        remaining_stops = get_remaining_stops(packages_to_divide)
+        # Select node that is farthest from currently selected one so that division is on the far ends
+        # of the limits of delivery zone.
+        next_node = get_farthest_neighbor(
+            last_node_selected, remaining_stops)
+
+        last_node_selected = next_node
+        # Add all packages to a single load that have a shared destination
+        for package in packages_to_divide:
+            if package.locationIndex == next_node:
+                # if the truck is full, use the next truck
+                while len(loads[load_index % 3]) >= 15:
+                    print(load_index % 3)
+                    print(loads[load_index % 3])
+                    # print(str(load_index) + "is full")
+                    load_index += 1
+                loads[load_index % 3].append(package)
+                packages_to_divide.remove(package)
+        # Alternate this value so that each load gets evenly distributed
+        load_index += 1
+
+    return (loads[0], loads[1], loads[2])
 
 
 def get_remaining_stops(packages):
@@ -296,35 +376,63 @@ clock = Clock()
 
 
 def main():
-    truck_one = Truck()
-    truck_two = Truck()
-    truck_three = Truck()
+    truck_one = Truck(1)
+    truck_two = Truck(2)
+    truck_three = Truck(3)
 
     all_packages = []
     # for package in wguPackages.packages + wguPackages.priority_packages + wguPackages.grouped_packages:
-    for package in wguPackages.packages + wguPackages.priority_packages + wguPackages.grouped_packages + wguPackages.delayed_packages + wguPackages.wrong_address_packages + wguPackages.truck_two_packages:
+    for package in wguPackages.packages + wguPackages.priority_packages + wguPackages.grouped_packages + wguPackages.truck_two_packages + wguPackages.delayed_packages + wguPackages.wrong_address_packages:
         # truck_one.addPackage()
         all_packages.append(Package(
-            package[0], package[1], package[2], package[3], package[4], package[5], package[6]))
+            package[0], package[1], package[2], package[3], package[4], package[5], package[6], package[7]))
 
     loads = divide_packages(all_packages)
-    print(str(loads[0]))
-    print(str(loads[1]))
+    print(loads[0])
+    print(loads[1])
+    print(loads[2])
+    # print(str(loads[0]))
+    # print(str(loads[1]))
 
-    truck_one.packages = loads[0]
-    truck_two.packages = loads[1]
+    # truck_one.packages = loads[0]
+    # truck_two.packages = loads[1]
 
-    truck_one.route_optimal_route()
-    truck_two.route_optimal_route()
+    # truck_one.route_optimal_route()
+    # truck_two.route_optimal_route()
 
-    print(truck_one.times)
-    print(truck_two.times)
+    # #print(truck_one.times)
+    # print(truck_two.times)
 
     show_all_package_status()
 
-    truck_one.update_package_status(37)
-    print()
-    lookup_package(PackageStatus.delivered.name)
+    for load in loads[0]:
+        truck_one.addPackage(load)
+    for load in loads[1]:
+        truck_three.addPackage(load)
+
+    minutes_passed = 0
+
+    # truck_one.update_delivery_times()
+    # truck_two.update_delivery_times()
+    while(minutes_passed < 30):
+        minutes_passed += 1
+        clock.add_minutes(1)
+    
+        if minutes_passed == 65:
+            for loads in loads[2]:
+                truck_two.addPackage(loads[2])
+        
+        truck_one.update_package_status(minutes_passed)
+        truck_two.update_package_status(minutes_passed)
+        truck_three.update_package_status(minutes_passed)
+        
+    
+    
+    truck_one.update_package_status(1)
+    # print()
+    show_all_package_status()
+    # lookup_package(PackageStatus.delivered.name)
+    # lookup_package(PackageStatus.at_hub.name)
 
 
 if __name__ == '__main__':
