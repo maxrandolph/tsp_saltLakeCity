@@ -4,10 +4,12 @@ import sys
 import enum
 import wguPackages
 import wguDistances
-from itertools import permutations
 
 
 class PackageStatus(enum.Enum):
+    """
+    Enum class for tracking package status.
+    """
     inaccessible = 1
     at_hub = 2
     in_transit = 3
@@ -15,7 +17,16 @@ class PackageStatus(enum.Enum):
 
 
 class Truck:
+    """
+    Class that represents a Truck object. handles package logic when loading and delivering.
+    """
+
     def __init__(self, truck_number):
+        """
+        Truck Ctor. Takes a number for identification of truck.
+
+        Time: O(1)
+        """
         self.truck_number = truck_number
         self.packages = []
         self.times = []
@@ -26,24 +37,39 @@ class Truck:
     def addPackage(self, package):
         """
         When a package is added, recalculate the route, and update the times on a 1:1
-        mapping to the respective delivery time per package.
+        mapping to the respective delivery time per package. Tracks when the last package
+        was loaded onto the truck for logging purposes.
+
+        Note that adding a package will trigger re-routing so that the times and route
+        reflect an accurate and efficient ETA.
+
+        Time: Calls functions that are O(N^2)
         """
         package.status = PackageStatus.in_transit
         self.time_passed = clock.time_passed
         self.packages.append(package)
-        self.route_optimal_route()
+        self.determine_optimal_route()
         self.update_delivery_times()
 
     def removePackage(self, package_id):
+        """
+        Removes a package from the truck with the passed package_id
+
+        Time: O(N)
+        """
         i = 0
         for package in self.packages:
             if package.package_id == package_id:
-                # del self.times[i]
                 return self.packages.pop(i)
             i += 1
         return None
 
     def deliver_package(self, package_id, time):
+        """
+        Delivers a package, marks package in the system as being "delivered".
+
+        Time: O(1)
+        """
         deliveredPackage = package_hash_table[package_id]
         package_hash_table[deliveredPackage.package_id].status = PackageStatus.delivered
         package_hash_table[deliveredPackage.package_id].delivered_at = str(
@@ -53,48 +79,75 @@ class Truck:
         else:
             package_hash_table[PackageStatus.delivered.name] = [
                 deliveredPackage]
-
-    def get_current_location(self):
         try:
-            return self.route[0]
+            package_hash_table[PackageStatus.in_transit.name].remove(
+                deliveredPackage)
         except:
-            return 0
+            pass
 
-    def route_optimal_route(self):
+    def determine_optimal_route(self):
+        """
+        Will use the package indexes referenced against the location table to determine
+        the best route to use.
+
+        Time: Equals runtime of find_best_route aka. O(N^2)
+        """
         self.route = find_best_route(
             [package.locationIndex for package in self.packages])
 
     def update_delivery_times(self):
+        """
+        Updates the times that each package is anticipated as being delivered.
+
+        Time: O(N)
+        """
         # print("my route is:" + str(self.route))
         self.times = [calc_route_time([0, self.route[0]])]
         for i in range(len(self.route)-1):
             self.times.append(calc_route_time(
-                [self.route[i], self.route[i+1]])+self.times[i] + self.time_passed)
+                [self.route[i], self.route[i+1]])+self.times[i])
 
     def update_package_status(self, time):
+        """
+        Runs an update to check if any of the packages currently on board the truck have
+        been delievered. If they have been, then it marks the packages appropriately.
+
+        Time: O(N)
+        """
         for i in range(len(self.times)):
             if (time + self.time_passed) >= self.times[i]:
                 if (self.packages[i].status != PackageStatus.delivered):
-                    # print("delivering package: " +
-                        #   str(self.packages[i].package_id))
                     self.deliver_package(
                         self.packages[i].package_id, self.times[i])
-        # add time to truck clock to allow for reuse of this function
-        # self.time_passed += time
-
-    def remaining_route_time(self):
-        return calc_route_time(self.route)
 
 
 class Clock:
+    """
+    Clock class that manages a 24 hour clock. Allows adding arbirtrary minutes while maintaining
+    correct time up to 2400.
+    """
+
     def __init__(self):
+        """
+        Clock Ctor
+        """
         self.hour = 8
         self.minute = 0.0
         self.time_passed = 0
 
+    def __str__(self):
+        return str(int(self.hour)) + str("%02d" % int(self.minute))
+
     def add_minutes(self, minutes=1):
+        """
+        Adds passed minutes to the clock.
+
+        Time: O(1)
+        """
         self.minute += minutes
         self.time_passed += minutes
+
+        # Calculates overage of hour in the minutes, and updates time accordingly.
         if self.minute >= 60:
             if self.minute == 60:
                 self.hour += 1
@@ -104,29 +157,25 @@ class Clock:
                 self.hour += 1 + (over // 60)
                 self.minute = over % 60
 
-    def __str__(self):
-        return str(int(self.hour)) + str("%02d" % int(self.minute))
-
-    def minute_tick(self):
-        self.add_minutes(1)
-
-
-class Driver:
-    def __init__(self, driverId, name):
-        self.driverId = driverId
-        self.name = name
-
-    def __str__(self):
-        return "Driver #" + str(self.driverId) + "\n" + "Name: " + self.name
-
 
 class Package:
+    """
+    Package Class. These things get delivered to various places around Salt Lake City.
+    """
+
     def __repr__(self):
+        """
+        The package is represented by its destination node id.
+        """
         return str(self.locationIndex)
 
     def __init__(self, package_id, address, city, zipCode, deadline=None, weight=0, locationIndex=0, status=2):
         """
-        ctor function and adds all values to package hash table.
+        Ctor function whick also adds all values to package hash table.
+
+        Each property corresnsponds to data tied to each aspect of the package.
+
+        Time: O(1)
         """
         self.package_id = package_id
         self.address = address
@@ -139,7 +188,6 @@ class Package:
         self.delivered_at = "N/A"
 
         package_hash_table[package_id] = self
-        package_list.append(self)
 
         # Insert into hash table
         if address in package_hash_table:
@@ -173,16 +221,23 @@ class Package:
             package_hash_table[PackageStatus(status).name] = [self]
 
     def __str__(self):
+        """
+        Returns a nicely formatted way to view the package status in string form.
+
+        Time: O(1)
+        """
         return (
-            "Package Id #" + str(self.package_id) + "\tStatus: " + str(self.status.name) + " \tAddress: " + str(self.address) + "\tDeadline: " + str(self.deadline) + " \tCity: " + str(
-                self.city) + " \tZip Code: " + str(self.zipCode) + " \tWeight: " + str(self.weight) + " \tDelivered At: " + str(self.delivered_at)
+            "Package Id #" + str(self.package_id) + "\tStatus: " + str(self.status.name) + "\tDeadline: " + str(self.deadline) + " \tDelivered At: " + str(self.delivered_at) + " \tAddress: " + str(self.address) + " \tCity: " + str(
+                self.city) + " \tZip Code: " + str(self.zipCode) + " \tWeight: " + str(self.weight)
         )
 
-
+# System functions
 def lookup_package(key):
     """
     This function will take either an integer for looking up ids or strings for looking up any other package
     value in the package hash table.
+
+    Time: O(1)
     """
     if type(key) is int and key in package_hash_table:
         print(package_hash_table[key])
@@ -196,32 +251,49 @@ def lookup_package(key):
 
 def show_all_package_status():
     """
-    This function will take either an integer for looking up ids or strings for looking up any other package
-    value in the package hash table.
+    This returns all of the statuses of the packages in the system, sorted by ID.
+
+    Time: O(N) if scaled, but in our case, N is limited to 40 packages, so really O(1).
     """
-    for package in package_list:
-        print(package)
+    print("\nWGUPS Status -- Time: " + str(clock))
+    for package in range(1, 41):
+        print(package_hash_table[package])
 
 
 def calc_distance(pointA, pointB):
+    """
+    Returns the distance between two location nodes, accepting parameters that correspond
+    to their respoective location indexes on the node list.
+
+    Time: O(1)
+    """
     distances = wguDistances.distances
     return distances[min(pointA, pointB)][max(pointA, pointB)-min(pointA, pointB)]
 
 
 def calc_route_time(route):
     """
-    calculate the total trip distance divided by 18 mph, multiplied by 60 minutes per hour.
+    Calculate the total trip distance divided by 18 mph, multiplied by 60 minutes per hour.
+
+    Time: O(1)
     """
     return round((total_distance(route) / 18) * 60, 2)
 
 
 def total_distance(locations):
+    """
+    Accepts a list of location indexes and calculates the total distance between all of them.
+
+    Time: O(N)
+    """
     return sum([calc_distance(location, locations[index + 1]) for index, location in enumerate(locations[:-1])])
 
 
 def find_best_route(nodes, start=0):
     """
     This function will map out the best route based on nearest neighbor of last node in path.
+
+    Time: O(N^2)
     """
     not_visited = nodes
     path = []
@@ -237,16 +309,31 @@ def find_best_route(nodes, start=0):
 
 
 def get_nearest_neighbor(current_node, available_nodes):
+    """
+    Accepts a node index, and returns the nearest neighbor of that node that is in the list of
+    nodes available.
+
+    Time: O(N)
+    """
     return min(available_nodes, key=lambda x: calc_distance(current_node, x))
 
 
 def get_farthest_neighbor(current_node, available_nodes):
+    """
+    Accepts a node index, and returns the farthest neighbor of that node that is in the list of
+    nodes available.
+
+    Time: O(N)
+    """
     return max(available_nodes, key=lambda x: calc_distance(current_node, x))
 
 
 def longest_path(locations, start=0):
     """
-    This function will get the farthest point from point given in order to help sort packages
+    This function will create the longest path of nodes from node given in order to help sort packages
+    by helping split the available packages and picking the farthest apart to go on separate trucks.
+
+    Time: O(N^2)
     """
     start = locations[start]
     not_visited = locations
@@ -259,13 +346,6 @@ def longest_path(locations, start=0):
     return path
 
 
-def recall_closest_truck():
-    """
-    This function should send out an alert to the nearest available truck to come to the hub
-    and pick up a package that has arrived late.
-    """
-
-
 def divide_packages(packages):
     """
     We have only two drivers, but a handful of packages. In order to divide the packages so that they
@@ -276,6 +356,13 @@ def divide_packages(packages):
     for each one and work our way through the remaining packages.
 
     The third load returned will be the truck that leaves after the first two trucks have made their deliveries
+
+    Note that we have hardcoded values based on the list provided to WGUPS. This could be automated if a 
+    consistent list delivery system was specified, which would help improve scalability.
+
+    The third load will be loaded assuming it is a delayed package truck.
+
+    Time: O(2N^2)
     """
     # loads correspond to the truck that will carry them, 0 = truck 1 load, 1 = truck 2 load, 2 = truck 3 load
     loads = [[], [], []]
@@ -291,7 +378,6 @@ def divide_packages(packages):
     special_truck_packages = [
         package for package in packages if package.package_id in [3, 18, 36, 38]]
 
-    print(packages)
     delayed_packages = [
         package for package in packages if package.package_id in [6, 28, 32, 25, 9]
     ]
@@ -308,7 +394,6 @@ def divide_packages(packages):
             packages_to_divide.remove(package)
         except:
             pass
-    print("valid packages to divide:" + str(packages_to_divide))
 
     # put all the priority packages on the first truck.
     loads[0] += grouped_packages
@@ -337,7 +422,7 @@ def divide_packages(packages):
 
     # priority pacakges have been sorted and added to truck loads. Get regular mail now to sort.
     packages_to_divide = no_deadline_packages
-    print(loads)
+
     while packages_to_divide:
         remaining_stops = get_remaining_stops(packages_to_divide)
         # Select node that is farthest from currently selected one so that division is on the far ends
@@ -351,60 +436,52 @@ def divide_packages(packages):
             if package.locationIndex == next_node:
                 # if the truck is full, use the next truck
                 while len(loads[load_index % 3]) >= 15:
-                    print(load_index % 3)
-                    print(loads[load_index % 3])
-                    # print(str(load_index) + "is full")
                     load_index += 1
                 loads[load_index % 3].append(package)
                 packages_to_divide.remove(package)
         # Alternate this value so that each load gets evenly distributed
         load_index += 1
-
     return (loads[0], loads[1], loads[2])
 
 
 def get_remaining_stops(packages):
     """
-    Returns a list of unique stops remaining for list of packages passed.
+    Returns a list of unique stops remaining for list of packages passed. This is used while
+    dividing packages to determine if packages can be grouped.
+
+    Time: O(N)
     """
     return list(set([package.locationIndex for package in packages]))
 
 
+# This is the hash table where packages are tracked.
 package_hash_table = {}
-package_list = []
+# Clock object for keeping track of the time while deliveries are taking place.
 clock = Clock()
 
 
 def main():
+    # Hard coded trucks since WGUPS doesn't have many resources, and why complicate things?
     truck_one = Truck(1)
     truck_two = Truck(2)
     truck_three = Truck(3)
 
     all_packages = []
-    # for package in wguPackages.packages + wguPackages.priority_packages + wguPackages.grouped_packages:
-    for package in wguPackages.packages + wguPackages.priority_packages + wguPackages.grouped_packages + wguPackages.truck_two_packages + wguPackages.delayed_packages + wguPackages.wrong_address_packages:
-        # truck_one.addPackage()
+
+    for package in (wguPackages.packages + wguPackages.priority_packages +
+                    wguPackages.grouped_packages + wguPackages.truck_two_packages +
+                    wguPackages.delayed_packages + wguPackages.wrong_address_packages):
         all_packages.append(Package(
             package[0], package[1], package[2], package[3], package[4], package[5], package[6], package[7]))
 
+    # Divide tha packages and put into a loads tuple. Loads[2] corresponds to packages that cannot
+    # be delivered at the first minute, since there's something holding them up.
     loads = divide_packages(all_packages)
-    print(loads[0])
-    print(loads[1])
-    print(loads[2])
-    # print(str(loads[0]))
-    # print(str(loads[1]))
 
-    # truck_one.packages = loads[0]
-    # truck_two.packages = loads[1]
-
-    # truck_one.route_optimal_route()
-    # truck_two.route_optimal_route()
-
-    # #print(truck_one.times)
-    # print(truck_two.times)
-
+    # Show all packages before loading.
     show_all_package_status()
 
+    # Load packages that have been divided to correspond to appropriate truck.
     for load in loads[0]:
         truck_one.addPackage(load)
     for load in loads[1]:
@@ -412,27 +489,33 @@ def main():
 
     minutes_passed = 0
 
-    # truck_one.update_delivery_times()
-    # truck_two.update_delivery_times()
-    while(minutes_passed < 30):
+    # Check status every minute of 8 hour day.
+    while(minutes_passed < 480):
         minutes_passed += 1
         clock.add_minutes(1)
-    
+
         if minutes_passed == 65:
-            for loads in loads[2]:
-                truck_two.addPackage(loads[2])
-        
+            for load in loads[2]:
+                truck_two.addPackage(load)
+            # add time that's passed to correctly calculate delivery times.
+            # We add the offset because there is a buffer of having two drivers for three trucks.
+            # After any truck finishes, this time would be added from whichever truck finishes first.
+            offset = min(max(truck_one.times), max(truck_three.times))
+            truck_two.times = [time + 65 + offset for time in truck_two.times]
+
+        if minutes_passed == 60:
+            show_all_package_status()
+        if minutes_passed == 125:
+            show_all_package_status()
+        if minutes_passed == 185:
+            show_all_package_status()
+
         truck_one.update_package_status(minutes_passed)
         truck_two.update_package_status(minutes_passed)
         truck_three.update_package_status(minutes_passed)
-        
-    
-    
-    truck_one.update_package_status(1)
-    # print()
+
+    # Day finished. Show final statuses.
     show_all_package_status()
-    # lookup_package(PackageStatus.delivered.name)
-    # lookup_package(PackageStatus.at_hub.name)
 
 
 if __name__ == '__main__':
