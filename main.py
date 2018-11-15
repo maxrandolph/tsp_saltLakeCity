@@ -33,6 +33,7 @@ class Truck:
         self.route = []
         self.driver = None
         self.time_passed = 0
+        self.miles = 0
 
     def addPackage(self, package):
         """
@@ -51,7 +52,7 @@ class Truck:
         self.determine_optimal_route()
         self.update_delivery_times()
 
-    def removePackage(self, package_id):
+    def remove_package(self, package_id):
         """
         Removes a package from the truck with the passed package_id
 
@@ -119,6 +120,7 @@ class Truck:
                 if (self.packages[i].status != PackageStatus.delivered):
                     self.deliver_package(
                         self.packages[i].package_id, self.times[i])
+                    self.miles += calc_distance(self.route[i], self.route[i-1])
 
 
 class Clock:
@@ -232,6 +234,8 @@ class Package:
         )
 
 # System functions
+
+
 def lookup_package(key):
     """
     This function will take either an integer for looking up ids or strings for looking up any other package
@@ -249,13 +253,14 @@ def lookup_package(key):
             print("no packages found")
 
 
-def show_all_package_status():
+def show_all_package_status(miles):
     """
     This returns all of the statuses of the packages in the system, sorted by ID.
 
     Time: O(N) if scaled, but in our case, N is limited to 40 packages, so really O(1).
     """
-    print("\nWGUPS Status -- Time: " + str(clock))
+    print("\nWGUPS Status -- Time: " + str(clock) + " | Total Miles Driven: "+ str(round(sum(miles),3)) + " | Truck #1:" +
+          str(round(miles[0],3))+" | Truck #2:" + str(round(miles[1],3))+" | Truck #3:" + str(round(miles[2],3)))
     for package in range(1, 41):
         print(package_hash_table[package])
 
@@ -478,8 +483,9 @@ def main():
     # be delivered at the first minute, since there's something holding them up.
     loads = divide_packages(all_packages)
 
+    total_miles = [truck_one.miles, truck_two.miles, truck_three.miles]
     # Show all packages before loading.
-    show_all_package_status()
+    show_all_package_status(total_miles)
 
     # Load packages that have been divided to correspond to appropriate truck.
     for load in loads[0]:
@@ -493,6 +499,7 @@ def main():
     while(minutes_passed < 480):
         minutes_passed += 1
         clock.add_minutes(1)
+        total_miles = [truck_one.miles, truck_two.miles, truck_three.miles]
 
         if minutes_passed == 65:
             for load in loads[2]:
@@ -504,18 +511,18 @@ def main():
             truck_two.times = [time + 65 + offset for time in truck_two.times]
 
         if minutes_passed == 60:
-            show_all_package_status()
+            show_all_package_status(total_miles)
         if minutes_passed == 125:
-            show_all_package_status()
+            show_all_package_status(total_miles)
         if minutes_passed == 185:
-            show_all_package_status()
+            show_all_package_status(total_miles)
 
         truck_one.update_package_status(minutes_passed)
         truck_two.update_package_status(minutes_passed)
         truck_three.update_package_status(minutes_passed)
 
     # Day finished. Show final statuses.
-    show_all_package_status()
+    show_all_package_status(total_miles)
 
 
 if __name__ == '__main__':
