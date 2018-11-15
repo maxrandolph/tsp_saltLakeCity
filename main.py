@@ -1,5 +1,3 @@
-# Maximilian Randolph // ID# 000964198
-
 import sys
 import enum
 import wguPackages
